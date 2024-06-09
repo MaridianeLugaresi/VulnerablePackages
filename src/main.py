@@ -1,6 +1,7 @@
 import pyshark
+import re
 
-FILE_PATH = '../packageCapture.pcapng'
+FILE_PATH = 'packageCapture.pcapng'
 
 def process_pcap():
 
@@ -8,25 +9,44 @@ def process_pcap():
 
     for packet in capture:
         try:
-            print(f'Número do pacote: {packet.number}')
-            print(f'Timestamp: {packet.sniff_time}')
-            print(f'Camadas: {packet.layers}')
-
-            if 'IP' in packet:
-                print(f'Endereço IP de origem: {packet.ip.src}')
-                print(f'Endereço IP de destino: {packet.ip.dst}')
-            
-            if 'TCP' in packet:
-                print(f'Porta de origem: {packet.tcp.srcport}')
-                print(f'Porta de destino: {packet.tcp.dstport}')
-            elif 'UDP' in packet:
-                print(f'Porta de origem: {packet.udp.srcport}')
-                print(f'Porta de destino: {packet.udp.dstport}')
-            
-            print('------------------------------------')
+            # Protocols considered vulnerable
+            if 'HTTP' in packet:
+                http_protocol(packet)
 
         except AttributeError as e:
-            print(f'Erro ao processar pacote: {e}')
+            print(f'Error processing package: {e}')
+
+def http_protocol(packet):
+
+    keywords_vulnerable = ['usuario', 'user', 'senha', 'password']
+
+    print('Detected HTTP protocol')
+
+    # View HTTP information
+    http_layer = packet.http
+
+    print(f'ID package: {packet.number}')
+    print(f'Source IP address: {packet.ip.src}')
+    print(f'Destination IP address: {packet.ip.dst}')
+
+    print(f'HTTP method: {http_layer.get_field_value("request_method")}')
+    print(f'Host: {http_layer.get_field_value("host")}')
+    print(f'URL: {http_layer.get_field_value("request_full_uri")}')
+
+    # View HTML content
+    if hasattr(http_layer, 'file_data') and http_layer.file_data:
+        try:
+            html_content = bytes.fromhex(http_layer.file_data.replace(':', '')).decode('utf-8', errors='replace')
+            print(f'Conteúdo HTML:\n{html_content}')
+
+            for keyword in keywords_vulnerable:
+                if re.search(keyword, html_content, re.IGNORECASE):
+                    print(f'Found keyword: {keyword}')
+
+        except ValueError as ve:
+            print("The package haven't layer HTML")
+
+    print('------------------------------------')
 
 if __name__ == '__main__':
     process_pcap()
