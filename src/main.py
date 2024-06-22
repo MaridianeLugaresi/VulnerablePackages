@@ -4,6 +4,7 @@ import dash
 import dash_bootstrap_components as dbc
 import plotly.graph_objs as go
 from dash import dcc, html
+from dash.dependencies import Input, Output
 
 FILE_PATHS = ['../packageCapture.pcapng','../FTPCapture.pcap']
 
@@ -54,14 +55,22 @@ def http_protocol(packet):
     if hasattr(http_layer, 'file_data') and http_layer.file_data:
         try:
             html_content = bytes.fromhex(http_layer.file_data.replace(':', '')).decode('utf-8', errors='replace')
-            print(f'Conteúdo HTML:\n{html_content}')
+            print(f'HTML content:\n{html_content}')
 
             # Search if content have keywords vulnerable
             for keyword in keywords_vulnerable:
                 if re.search(keyword, html_content, re.IGNORECASE):
                     print(f'Found keyword: {keyword}')
                     vulnerabilities['http'] += 1
-                    http_packets.append(packet.number)
+                    http_packets.append({
+                        'id': packet.number,
+                        'src_ip': packet.ip.src,
+                        'dst_ip': packet.ip.dst,
+                        'method': http_layer.get_field_value("request_method"),
+                        'host': http_layer.get_field_value("host"),
+                        'uri': http_layer.get_field_value("request_full_uri"),
+                        'content': html_content
+                    })
 
         except ValueError as ve:
             print("The package haven't layer HTML")
@@ -88,7 +97,11 @@ def ftp_protocol(packet):
         if email_pattern.search(ftp_layer.request_arg):
             print(f'Found email address: {ftp_layer.request_arg}')
             vulnerabilities['ftp'] += 1
-            ftp_packets.append(packet.number)
+            ftp_packets.append({
+                'id': packet.number,
+                'command': ftp_layer.request_command,
+                'arg': ftp_layer.request_arg
+            })
 
     if hasattr(ftp_layer, 'response_code'):
         print(f'FTP response code: {ftp_layer.response_code}')
@@ -104,6 +117,7 @@ def create_dashboard(vulnerabilities):
     counts = list(vulnerabilities.values())
     
     bar_chart = dcc.Graph(
+        id='vulnerability-bar-chart',
         figure={
             'data': [
                 go.Bar(x=protocols, y=counts, marker_color=['violet', 'green'])
@@ -124,17 +138,21 @@ def create_dashboard(vulnerabilities):
     ], fluid=True)
 
     @app.callback(
-        dash.dependencies.Output('details', 'children'),
-        [dash.dependencies.Input('details', 'id')]
+        Output('details', 'children'),
+        [Input('vulnerability-bar-chart', 'clickData')]
     )
-    def update_details(_):
+
+    def update_details(clickData):
         details = []
-        if http_packets:
-            details.append(html.H5("Vulnerable HTTP Packets"))
-            details.append(html.Ul([html.Li(f"ID {packet}") for packet in http_packets]))
-        if ftp_packets:
-            details.append(html.H5("Vulnerable FTP Packets"))
-            details.append(html.Ul([html.Li(f"ID {packet}") for packet in ftp_packets]))
+        if clickData:
+            protocol = clickData['points'][0]['x']
+            if protocol == 'http':
+                details.append(html.H5("Vulnerable HTTP Packets"))
+                details.append(html.Ul([html.Li(f"ID {packet['id']}: {packet['method']} {packet['uri']} {packet['content']}") for packet in http_packets]))
+            if protocol == 'ftp':
+                details.append(html.H5("Vulnerable FTP Packets"))
+                details.append(html.Ul([html.Li(f"ID {packet['id']}: {packet['command']} {packet['arg']}") for packet in ftp_packets]))
+
         return details
     
     return app
