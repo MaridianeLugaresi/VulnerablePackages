@@ -5,7 +5,7 @@ import dash_bootstrap_components as dbc
 import plotly.graph_objs as go
 from dash import dcc, html
 
-FILE_PATH = '../packageCapture.pcapng'
+FILE_PATHS = ['../packageCapture.pcapng','../FTPCapture.pcap']
 
 vulnerabilities = {
     'http': 0,
@@ -17,19 +17,21 @@ ftp_packets = []
 
 def process_pcap():
 
-    capture = pyshark.FileCapture(FILE_PATH)
+    for file_path in FILE_PATHS:
 
-    for packet in capture:
-        try:
-            # Protocols considered vulnerable
-            if 'HTTP' in packet:
-                http_protocol(packet)
+        capture = pyshark.FileCapture(file_path)
 
-            if 'FTP' in packet:
-                ftp_protocol(packet)
+        for packet in capture:
+            try:
+                # Protocols considered vulnerable
+                if 'HTTP' in packet:
+                    http_protocol(packet)
 
-        except AttributeError as e:
-            print(f'Error processing package: {e}')
+                if 'FTP' in packet:
+                    ftp_protocol(packet)
+
+            except AttributeError as e:
+                print(f'Error processing package: {e}')
 
 def http_protocol(packet):
 
