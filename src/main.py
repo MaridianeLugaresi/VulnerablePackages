@@ -1,7 +1,19 @@
 import pyshark
 import re
+import dash
+import dash_bootstrap_components as dbc
+import plotly.graph_objs as go
+from dash import dcc, html
 
-FILE_PATH = 'packageCapture.pcapng'
+FILE_PATH = '../packageCapture.pcapng'
+
+vulnerabilities = {
+    'http': 0,
+    'ftp': 0
+}
+
+http_packets = []
+ftp_packets = []
 
 def process_pcap():
 
@@ -46,6 +58,8 @@ def http_protocol(packet):
             for keyword in keywords_vulnerable:
                 if re.search(keyword, html_content, re.IGNORECASE):
                     print(f'Found keyword: {keyword}')
+                    vulnerabilities['http'] += 1
+                    http_packets.append(packet.number)
 
         except ValueError as ve:
             print("The package haven't layer HTML")
@@ -71,6 +85,8 @@ def ftp_protocol(packet):
         # Search if arguments have email
         if email_pattern.search(ftp_layer.request_arg):
             print(f'Found email address: {ftp_layer.request_arg}')
+            vulnerabilities['ftp'] += 1
+            ftp_packets.append(packet.number)
 
     if hasattr(ftp_layer, 'response_code'):
         print(f'FTP response code: {ftp_layer.response_code}')
@@ -80,5 +96,48 @@ def ftp_protocol(packet):
 
     print('------------------------------------')
 
+def create_dashboard(vulnerabilities):
+    app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
+    protocols = list(vulnerabilities.keys())
+    counts = list(vulnerabilities.values())
+    
+    bar_chart = dcc.Graph(
+        figure={
+            'data': [
+                go.Bar(x=protocols, y=counts, marker_color=['violet', 'green'])
+            ],
+            'layout': go.Layout(
+                title='Vulnerabilities Found by Protocol',
+                xaxis={'title': 'Protocols'},
+                yaxis={'title': 'Number of Vulnerabilities'}
+            )
+        }
+    )
+
+    app.layout = dbc.Container([
+        dbc.Row(dbc.Col(html.H2("Network Vulnerability Dashboard"))),
+        dbc.Row(dbc.Col(bar_chart)),
+        dbc.Row(dbc.Col(html.H4("Details of Vulnerable Packets"))),
+        dbc.Row(dbc.Col(html.Div(id='details'))),
+    ], fluid=True)
+
+    @app.callback(
+        dash.dependencies.Output('details', 'children'),
+        [dash.dependencies.Input('details', 'id')]
+    )
+    def update_details(_):
+        details = []
+        if http_packets:
+            details.append(html.H5("Vulnerable HTTP Packets"))
+            details.append(html.Ul([html.Li(f"ID {packet}") for packet in http_packets]))
+        if ftp_packets:
+            details.append(html.H5("Vulnerable FTP Packets"))
+            details.append(html.Ul([html.Li(f"ID {packet}") for packet in ftp_packets]))
+        return details
+    
+    return app
+
 if __name__ == '__main__':
     process_pcap()
+    app = create_dashboard(vulnerabilities)
+    app.run_server()
